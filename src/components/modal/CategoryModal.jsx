@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { X } from "lucide-react"; // Import icon X
+import { X } from "lucide-react"; 
 
 const CategoryModal = ({
   isOpen,

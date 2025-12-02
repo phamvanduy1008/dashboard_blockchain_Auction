@@ -1,24 +1,75 @@
 import { motion } from "framer-motion";
-import { Search, Eye, AlertTriangle } from "lucide-react";
+import { Search, AlertTriangle } from "lucide-react";
 import { useState } from "react";
 import AuctionDetailModal from "../common/AuctionDetailModal";
 import toast from "react-hot-toast";
-import { formatDistanceToNow } from "date-fns";
+import { formatDistanceToNow, isValid, parseISO } from "date-fns";
+import { auctionService } from "../../services/auctionService"; // Adjust path as needed
+
+// Inline conversion utils for frontend (no ethers dependency)
+const EXCHANGE_RATE_ETH_TO_VND = 50000000; // 1 ETH = 50,000,000 VND
+
+const formatVnd = (amount) => {
+  if (!amount || amount === 0) return "0 ₫";
+  return new Intl.NumberFormat("vi-VN", {
+    style: "currency",
+    currency: "VND",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+const vndToEth = (vndAmount) => {
+  if (!vndAmount || vndAmount <= 0) return 0;
+  return (vndAmount / EXCHANGE_RATE_ETH_TO_VND).toFixed(6);
+};
+
+const formatEth = (ethAmount) => {
+  if (!ethAmount || ethAmount === 0) return "0 ETH";
+  const formatted = parseFloat(ethAmount).toFixed(6).replace(/0+$/, '').replace(/\.$/, '');
+  return `${formatted} ETH`;
+};
+
+const statusOptions = [
+  'PENDING_APPROVAL',
+  'APPROVED',
+  'REJECTED',
+  'ACTIVE',
+  'ENDED',
+  'SETTLED'
+];
 
 const AuctionsTable = ({ auctions }) => {
 	const [searchTerm, setSearchTerm] = useState("");
+	const [filterStatus, setFilterStatus] = useState("all");
 	const [selectedAuction, setSelectedAuction] = useState(null);
 	const [isModalOpen, setIsModalOpen] = useState(false);
 
-	// Filter theo search
-	const filteredAuctions = auctions.filter((auction) =>
-		auction.id.includes(searchTerm) ||
-		auction.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-		auction.seller.toLowerCase().includes(searchTerm.toLowerCase())
-	);
+	console.log("🔍 All auctions (props):", auctions); // This should log now
 
-	const openModal = (auction) => {
-		setSelectedAuction(auction);
+	// Filter theo search và status
+	const filteredAuctions = auctions.filter((auction) => {
+		const matchesSearch =
+			auction.id?.toString().includes(searchTerm) ||
+			auction.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+			(auction.seller?.username || auction.seller?.full_name || auction.seller)?.toLowerCase().includes(searchTerm.toLowerCase());
+		
+		const matchesStatus = filterStatus === 'all' || auction.status === filterStatus;
+		
+		return matchesSearch && matchesStatus;
+	});
+
+	const openModal = async (auction) => {
+		console.log('Opening modal for auction:', auction); // Log the auction from list
+		try {
+			const fetchedAuction = await auctionService.getAuctionById(auction.id);
+			console.log('Fetched auction details:', fetchedAuction); // Log fetched data
+			setSelectedAuction(fetchedAuction);
+		} catch (err) {
+			console.error('Error fetching auction details:', err); // Log error
+			toast.error('Failed to fetch auction details');
+			setSelectedAuction(auction); // Fallback to list data
+		}
 		setIsModalOpen(true);
 	};
 
@@ -27,25 +78,104 @@ const AuctionsTable = ({ auctions }) => {
 		setSelectedAuction(null);
 	};
 
-	const handleForceEnd = (id) => {
+	const handleForceEnd = async (id) => {
 		if (confirm(`Force end auction #${id}?`)) {
-			toast.success(`Auction #${id} đã được admin kết thúc!`);
-			closeModal();
-			// TODO: gọi API thật
+			try {
+				await auctionService.endAuction(id);
+				toast.success(`Auction #${id} đã được admin kết thúc!`);
+				closeModal();
+				// Optionally refresh data here by calling a refresh prop or global state
+			} catch (err) {
+				toast.error('Failed to end auction');
+			}
 		}
 	};
 
-	const getTimeLeft = (endTime) => {
-		if (new Date(endTime) < new Date()) return "Đã kết thúc";
-		return formatDistanceToNow(endTime, { addSuffix: true });
+	const getEndDate = (endTime) => {
+		if (!endTime) return null;
+		let date;
+		if (typeof endTime === 'number') {
+			date = new Date(endTime);
+		} else if (typeof endTime === 'string') {
+			date = parseISO(endTime);
+			if (!isValid(date)) {
+				date = new Date(endTime);
+			}
+		} else {
+			return null;
+		}
+		return isValid(date) ? date : null;
+	};
+
+	const getTimeLeft = (endTime, status) => {
+		if (status === 'PENDING_APPROVAL') return 'Pending';
+		const endDate = getEndDate(endTime);
+		if (!endDate || endDate < new Date()) return "Expired";
+		return formatDistanceToNow(endDate, { addSuffix: true });
+	};
+
+	const isEnded = (auction) => {
+		return auction.status === 'ENDED' || auction.status === 'SETTLED';
 	};
 
 	const getStatusBadge = (auction) => {
-		if (auction.ended)
-			return <span className='px-3 py-1 text-xs rounded-full bg-gray-600 text-gray-200'>Ended</span>;
-		if (Date.now() > auction.endTime - 5 * 60 * 1000)
-			return <span className='px-3 py-1 text-xs rounded-full bg-red-600 text-white animate-pulse'>Ending Soon</span>;
-		return <span className='px-3 py-1 text-xs rounded-full bg-green-600 text-white'>Active</span>;
+		const status = auction.status;
+		let color = 'bg-gray-600';
+		let text = status || 'Unknown';
+		let animation = '';
+
+		switch (status) {
+			case 'PENDING_APPROVAL':
+				color = 'bg-yellow-600';
+				text = 'Pending';
+				break;
+			case 'APPROVED':
+				color = 'bg-blue-600';
+				text = 'Approved';
+				break;
+			case 'REJECTED':
+				color = 'bg-red-600';
+				text = 'Rejected';
+				break;
+			case 'DEPLOYING':
+				color = 'bg-purple-600';
+				text = 'Deploying';
+				break;
+			case 'ACTIVE':
+				color = 'bg-green-600';
+				text = 'Active';
+				const endDate = getEndDate(auction.end_time);
+				if (endDate && Date.now() > endDate.getTime() - 5 * 60 * 1000) {
+					color = 'bg-red-600';
+					text = 'Ending Soon';
+					animation = 'animate-pulse';
+				}
+				break;
+			case 'ENDED':
+				color = 'bg-gray-600';
+				text = 'Ended';
+				break;
+			case 'SETTLED':
+				color = 'bg-indigo-600';
+				text = 'Settled';
+				break;
+		}
+
+		return <span className={`px-3 py-1 text-xs rounded-full ${color} text-white ${animation}`}>{text}</span>;
+	};
+
+	const getSellerName = (seller) => {
+		if (!seller) return 'Unknown';
+		return seller.full_name || seller.username || seller || 'Unknown';
+	};
+
+	const formatPrice = (priceVnd) => {
+		if (!priceVnd || isNaN(parseFloat(priceVnd))) return { vnd: '0 ₫', eth: '0 ETH' };
+		const eth = vndToEth(priceVnd);
+		return {
+			vnd: formatVnd(priceVnd),
+			eth: formatEth(eth)
+		};
 	};
 
 	return (
@@ -58,15 +188,29 @@ const AuctionsTable = ({ auctions }) => {
 			>
 				<div className='flex justify-between items-center mb-6'>
 					<h2 className='text-xl font-semibold text-gray-100'>All Auctions</h2>
-					<div className='relative'>
-						<input
-							type='text'
-							placeholder='Search by ID, title, seller...'
-							className='bg-gray-700 text-white placeholder-gray-400 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64'
-							value={searchTerm}
-							onChange={(e) => setSearchTerm(e.target.value)}
-						/>
-						<Search className='absolute left-3 top-2.5 text-gray-400' size={18} />
+					<div className='flex items-center gap-4'>
+						<div className='relative'>
+							<input
+								type='text'
+								placeholder='Search by ID, title, seller...'
+								className='bg-gray-700 text-white placeholder-gray-400 rounded-lg pl-10 pr-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 w-64'
+								value={searchTerm}
+								onChange={(e) => setSearchTerm(e.target.value)}
+							/>
+							<Search className='absolute left-3 top-2.5 text-gray-400' size={18} />
+						</div>
+						<select 
+							value={filterStatus} 
+							onChange={e => setFilterStatus(e.target.value)}
+							className='bg-gray-700 text-white rounded-lg px-4 py-2 focus:ring-2 focus:ring-blue-500'
+						>
+							<option value='all'>All Status</option>
+							{statusOptions.map(status => (
+								<option key={status} value={status}>
+									{status.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, l => l.toUpperCase())}
+								</option>
+							))}
+						</select>
 					</div>
 				</div>
 
@@ -76,60 +220,75 @@ const AuctionsTable = ({ auctions }) => {
 							<tr>
 								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Item</th>
 								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Seller</th>
-								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Current Bid</th>
+								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Current Price</th>
 								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Time Left</th>
 								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Status</th>
 								<th className='px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wider'>Actions</th>
 							</tr>
 						</thead>
 						<tbody className='divide-y divide-gray-700'>
-							{filteredAuctions.map((auction) => (
-								<motion.tr
-									key={auction.id}
-									className='hover:bg-gray-700 transition'
-									initial={{ opacity: 0 }}
-									animate={{ opacity: 1 }}
-								>
-									<td className='px-6 py-4'>
-										<div className='flex items-center gap-3'>
-											<img src={auction.image} alt={auction.title} className='w-10 h-10 rounded-lg object-cover border border-gray-600' />
-											<div>
-												<div className='font-medium text-white'>#{auction.id}</div>
-												<div className='text-xs text-gray-400 truncate max-w-40'>{auction.title}</div>
-											</div>
-										</div>
+							{filteredAuctions.length === 0 ? (
+								<tr>
+									<td colSpan={6} className='px-6 py-4 text-center text-gray-400'>
+										No auctions found.
 									</td>
-									<td className='px-6 py-4 text-sm text-gray-300'>
-										<div>{auction.seller}</div>
-										<code className='text-xs text-gray-500'>{auction.sellerAddress}</code>
-									</td>
-									<td className='px-6 py-4 text-sm font-bold text-indigo-400'>
-										{auction.currentBid} ETH
-									</td>
-									<td className='px-6 py-4 text-sm text-gray-300'>
-										{getTimeLeft(auction.endTime)}
-									</td>
-									<td className='px-6 py-4 text-sm'>{getStatusBadge(auction)}</td>
-									<td className='px-6 py-4 text-sm'>
-										<button
+								</tr>
+							) : (
+								filteredAuctions.map((auction) => {
+									const priceInfo = formatPrice(auction.current_price_vnd);
+									console.log(`Price for auction ${auction.id}:`, priceInfo); // Additional log for price
+									return (
+										<motion.tr
+											key={auction.id}
+											className='hover:bg-gray-700 transition cursor-pointer'
+											initial={{ opacity: 0 }}
+											animate={{ opacity: 1 }}
 											onClick={() => openModal(auction)}
-											className='text-blue-400 hover:text-blue-300 mr-4'
-											title='View Details'
 										>
-											<Eye size={20} />
-										</button>
-										{!auction.ended && (
-											<button
-												onClick={() => handleForceEnd(auction.id)}
-												className='text-red-400 hover:text-red-300'
-												title='Force End'
-											>
-												<AlertTriangle size={20} />
-											</button>
-										)}
-									</td>
-								</motion.tr>
-							))}
+											<td className='px-6 py-4'>
+												<div className='flex items-center gap-3'>
+													<img 
+														src={auction.images?.[0] || `https://via.placeholder.com/40?text=${encodeURIComponent(auction.title.substring(0,1))}`} 
+														alt={auction.title} 
+														className='w-10 h-10 rounded-lg object-cover border border-gray-600' 
+													/>
+													<div>
+														<div className='font-medium text-white'>{auction.title}</div>
+													</div>
+												</div>
+											</td>
+											<td className='px-6 py-4 text-sm text-gray-300'>
+												<div>{getSellerName(auction.seller)}</div>
+												{auction.sellerAddress && <code className='text-xs text-gray-500 block'>{auction.sellerAddress}</code>}
+											</td>
+											<td className='px-6 py-4 text-sm font-bold'>
+												<div className='space-y-1'>
+													<div className='text-green-400'>{priceInfo.vnd}</div>
+													<div className='text-orange-400 text-xs'>{priceInfo.eth}</div>
+												</div>
+											</td>
+											<td className='px-6 py-4 text-sm text-gray-300'>
+												{getTimeLeft(auction.end_time, auction.status)}
+											</td>
+											<td className='px-6 py-4 text-sm'>{getStatusBadge(auction)}</td>
+											<td className='px-6 py-4 text-sm'>
+												{!isEnded(auction) && (
+													<button
+														onClick={(e) => {
+															e.stopPropagation(); // Prevent row click
+															handleForceEnd(auction.id);
+														}}
+														className='text-red-400 hover:text-red-300'
+														title='Force End'
+													>
+														<AlertTriangle size={20} />
+													</button>
+												)}
+											</td>
+										</motion.tr>
+									);
+								})
+							)}
 						</tbody>
 					</table>
 				</div>

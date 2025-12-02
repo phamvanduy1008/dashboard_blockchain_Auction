@@ -1,17 +1,87 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { motion } from "framer-motion";
-
-const volumeData = [
-	{ month: "Jul", volume: 12.4 },
-	{ month: "Aug", volume: 19.2 },
-	{ month: "Sep", volume: 28.7 },
-	{ month: "Oct", volume: 35.1 },
-	{ month: "Nov", volume: 52.8 },
-	{ month: "Dec", volume: 78.3 },
-	{ month: "Jan", volume: 94.2 },
-];
+import { useState, useEffect } from "react";
+import { auctionService } from "../../services/auctionService"; 
 
 const VolumeOverviewChart = () => {
+	const [volumeData, setVolumeData] = useState([]);
+	const [loading, setLoading] = useState(true);
+	const [error, setError] = useState(null);
+
+	useEffect(() => {
+		const fetchVolumeData = async () => {
+			try {
+				setLoading(true);
+				const rawData = await auctionService.getVolumeByMonth();
+				console.log('Raw volume data:', rawData); // Log raw data for debugging
+				
+				// Transform if data is object with 'months' key, else assume direct array
+				let transformedData = [];
+				if (rawData && rawData.months && Array.isArray(rawData.months)) {
+					// Map months to chart format: { month: "Jan", volume: 12.4 }
+					const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+					transformedData = rawData.months.map((monthObj, index) => ({
+						month: monthNames[index] || `Month ${index + 1}`,
+						volume: parseFloat(monthObj.total_eth || 0) // Use ETH for chart
+					}));
+				} else if (Array.isArray(rawData)) {
+					transformedData = rawData; // Direct array
+				} else {
+					throw new Error('Invalid volume data format');
+				}
+				
+				console.log('Transformed volumeData:', transformedData); // Log transformed data
+				setVolumeData(transformedData);
+			} catch (err) {
+				console.error('Volume fetch error:', err);
+				setError(err.message || 'Failed to fetch volume data');
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		fetchVolumeData();
+	}, []);
+
+	if (loading) {
+		return (
+			<motion.div
+				className='bg-gray-800 bg-opacity-50 backdrop-blur-md shadow-lg rounded-xl p-6 border border-gray-700 h-96 flex items-center justify-center'
+				initial={{ opacity: 0, y: 20 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ delay: 0.2 }}
+			>
+				<div className='text-gray-400'>Loading volume chart...</div>
+			</motion.div>
+		);
+	}
+
+	if (error) {
+		return (
+			<motion.div
+				className='bg-gray-800 bg-opacity-50 backdrop-blur-md shadow-lg rounded-xl p-6 border border-gray-700 h-96 flex items-center justify-center'
+				initial={{ opacity: 0, y: 20 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ delay: 0.2 }}
+			>
+				<div className='text-red-400'>Error: {error}</div>
+			</motion.div>
+		);
+	}
+
+	if (volumeData.length === 0) {
+		return (
+			<motion.div
+				className='bg-gray-800 bg-opacity-50 backdrop-blur-md shadow-lg rounded-xl p-6 border border-gray-700 h-96 flex items-center justify-center'
+				initial={{ opacity: 0, y: 20 }}
+				animate={{ opacity: 1, y: 0 }}
+				transition={{ delay: 0.2 }}
+			>
+				<div className='text-gray-400'>No volume data available</div>
+			</motion.div>
+		);
+	}
+
 	return (
 		<motion.div
 			className='bg-gray-800 bg-opacity-50 backdrop-blur-md shadow-lg rounded-xl p-6 border border-gray-700'
@@ -20,7 +90,7 @@ const VolumeOverviewChart = () => {
 			transition={{ delay: 0.2 }}
 		>
 			<h2 className='text-xl font-semibold mb-4 text-gray-100'>
-				Volume Đấu Giá Theo Tháng (ETH)
+				Monthly Auction Volume (ETH)
 			</h2>
 
 			<div className='h-80'>
@@ -48,4 +118,4 @@ const VolumeOverviewChart = () => {
 		</motion.div>
 	);
 };
-export default VolumeOverviewChart;
+export default VolumeOverviewChart

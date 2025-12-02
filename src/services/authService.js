@@ -1,12 +1,10 @@
-// authService.js
 import api from './api';
 
 export const authService = {
   login: async ({ username, password }) => {
-    // Dùng URL đầy đủ '/api/auth/admin/login'
-    const { data } = await api.post('/api/auth/admin/login', { username, password });
+    const { data } = await api.post('/admin/login_admin', { username, password });
     localStorage.setItem('token', data.token);
-    localStorage.setItem('role', 'admin');
+    localStorage.setItem('role', 'ADMIN');
     return data.token;
   }
 };

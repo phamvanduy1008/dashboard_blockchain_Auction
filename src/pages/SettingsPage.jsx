@@ -5,13 +5,13 @@ import Notifications from "../components/settings/Notifications";
 import Profile from "../components/settings/Profile";
 import Security from "../components/settings/Security";
 
-const SettingsPage = ({ onLogout, onUpdateToken }) => {
+const SettingsPage = () => {
   const navigate = useNavigate();
 
   const handleLogoutLocal = () => {
-    onLogout(); 
-    navigate("/login"); 
-    onUpdateToken(); 
+  localStorage.removeItem("token");
+  localStorage.removeItem("role");
+     window.location.replace("/login"); 
   };
 
   return (
