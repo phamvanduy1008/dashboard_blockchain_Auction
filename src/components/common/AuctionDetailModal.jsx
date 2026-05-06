@@ -401,27 +401,46 @@ const AuctionDetailModal = ({
 
   const handleApproveClick = () => setShowConfirmApprove(true);
 
+   // Actually approve after confirmation
   const handleApproveConfirm = async () => {
     setIsApproving(true);
     try {
       const result = await auctionService.approveAuction(auction.id);
+
+      // Kiểm tra xem đã deploy blockchain thành công chưa
+      if (!result || !result.contract_address || !result.blockchain_id) {
+        throw new Error("Deploy failed - No contract address returned from server");
+      }
+
       setShowConfirmApprove(false);
       setSuccessType("approve");
-      setSuccessMessage(`Auction "${auction.title}" has been approved and deployed to blockchain!`);
+      setSuccessMessage(
+        `Auction "${auction.title}" has been approved and deployed to blockchain!`
+      );
       setSuccessDetails({
-        contract_address: result?.contract_address,
-        blockchain_id: result?.blockchain_id,
-        metadata_hash: result?.metadata_hash,
+        contract_address: result.contract_address,
+        blockchain_id: result.blockchain_id,
+        metadata_hash: result.metadata_hash,
       });
+
       await onActionComplete?.();
       setShowSuccess(true);
+
     } catch (err) {
-      toast.error(err?.response?.data?.error || "Failed to approve auction");
+      console.error("Approve error:", err);
+      setShowConfirmApprove(false);
+      
+      const errMsg = 
+        err?.response?.data?.error || 
+        err?.response?.data?.details || 
+        err?.message || 
+        "Failed to approve auction";
+
+      toast.error(errMsg);
     } finally {
       setIsApproving(false);
     }
   };
-
   const handleReject = async (reason) => {
     if (!reason?.trim()) {
       toast.error("Please provide a rejection reason");
@@ -571,9 +590,9 @@ const AuctionDetailModal = ({
                   </div>
                   {highestBidderObj && (
                     <p className="text-green-400 text-sm mt-4 flex items-center gap-2 bg-green-900/20 rounded-lg p-2">
-                      <Trophy className="w-4 h-4" /> Leading: {highestBidderName}
-                    </p>
-                  )}
+                    <Trophy className="w-4 h-4" /> 
+                    {!isAdminEnded ? (highestBidderName ? `Highest Bidder: ${highestBidderName}` : "No bids placed") : "AdminEnded"}                    </p>
+                                      )}
                 </div>
 
                 {auction.start_price_vnd && (
@@ -670,7 +689,7 @@ const AuctionDetailModal = ({
                       </button>
                     </div>
                   )}
-                  {canDeploy && <button onClick={handleDeploy} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition">Deploy Contract</button>}
+                  {canDeploy && <button onClick={handleDeploy} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition">Deploying Contract ....</button>}
                   {canStart && <button onClick={handleStart} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl transition">Start Auction</button>}
                   {canEnd && (
                     <button onClick={() => setShowConfirmForceEnd(true)} disabled={isForceEnding} className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50">
@@ -687,9 +706,9 @@ const AuctionDetailModal = ({
               <motion.div className="w-full bg-gradient-to-r from-green-900/40 to-emerald-900/40 border border-green-500/30 rounded-2xl p-6 text-center mb-8 shadow-xl" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                 <Trophy className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
                 <h3 className="text-2xl font-bold text-green-300 mb-2">Auction Successfully Completed!</h3>
-                {highestBidderObj && (
+                {/* {highestBidderObj && (
                   <p className="text-green-200">🏆 Winner: <span className="font-mono bg-green-800/50 px-2 py-1 rounded">{highestBidderName}</span></p>
-                )}
+                )} */}
               </motion.div>
             )}
 
@@ -697,16 +716,16 @@ const AuctionDetailModal = ({
               <motion.div className="w-full bg-gradient-to-r from-amber-900/40 to-orange-900/40 border border-amber-500/40 rounded-2xl p-6 text-center mb-8 shadow-xl" initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
                 <AlertTriangle className="w-16 h-16 text-amber-300 mx-auto mb-4" />
                 <h3 className="text-2xl font-bold text-amber-200 mb-2">Auction Force Ended by Admin</h3>
-                {highestBidderObj && (
+                {/* {highestBidderObj && (
                   <p className="text-amber-100">Winner: <span className="font-mono bg-amber-800/50 px-2 py-1 rounded">{highestBidderName}</span></p>
-                )}
+                )} */}
               </motion.div>
             )}
 
             {hasBids && (
               <div>
                 <h3 className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
-                  📊 Bid History <span className="text-gray-500 text-sm">({bids.length} total bids)</span>
+                   Bid History <span className="text-gray-500 text-sm">({bids.length} total bids)</span>
                 </h3>
                 <div className="bg-gradient-to-r from-gray-900/50 to-gray-800/50 rounded-2xl p-6 border border-gray-700/50 mb-8">
                   <div className="overflow-x-auto">
