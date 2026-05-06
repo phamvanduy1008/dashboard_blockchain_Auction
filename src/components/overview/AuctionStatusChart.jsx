@@ -21,6 +21,7 @@ const AuctionStatusChart = () => {
 					'DEPLOYING': { name: "Deploying", color: "#8B5CF6" },
 					'ACTIVE': { name: "Active", color: "#10B981" },
 					'ENDED': { name: "Ended", color: "#6B7280" },
+					'ADMIN_ENDED': { name: "Admin Ended", color: "#F59E0B" },
 					'SETTLED': { name: "Settled", color: "#6366F1" }
 				};
 				

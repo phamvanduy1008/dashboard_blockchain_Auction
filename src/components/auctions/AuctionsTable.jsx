@@ -36,10 +36,11 @@ const statusOptions = [
   'REJECTED',
   'ACTIVE',
   'ENDED',
+  'ADMIN_ENDED',
   'SETTLED'
 ];
 
-const AuctionsTable = ({ auctions }) => {
+const AuctionsTable = ({ auctions, onAuctionsChanged }) => {
 	const [searchTerm, setSearchTerm] = useState("");
 	const [filterStatus, setFilterStatus] = useState("all");
 	const [selectedAuction, setSelectedAuction] = useState(null);
@@ -83,8 +84,8 @@ const AuctionsTable = ({ auctions }) => {
 			try {
 				await auctionService.endAuction(id);
 				toast.success(`Auction #${id} đã được admin kết thúc!`);
+				await onAuctionsChanged?.();
 				closeModal();
-				// Optionally refresh data here by calling a refresh prop or global state
 			} catch (err) {
 				toast.error('Failed to end auction');
 			}
@@ -109,13 +110,15 @@ const AuctionsTable = ({ auctions }) => {
 
 	const getTimeLeft = (endTime, status) => {
 		if (status === 'PENDING_APPROVAL') return 'Pending';
+		if (status === 'REJECTED') return 'Rejected';
+		if (status === 'ADMIN_ENDED') return 'Force ended';
 		const endDate = getEndDate(endTime);
 		if (!endDate || endDate < new Date()) return "Expired";
 		return formatDistanceToNow(endDate, { addSuffix: true });
 	};
 
 	const isEnded = (auction) => {
-		return auction.status === 'ENDED' || auction.status === 'SETTLED';
+		return auction.status === 'ENDED' || auction.status === 'ADMIN_ENDED' || auction.status === 'SETTLED' || auction.status === 'REJECTED';
 	};
 
 	const getStatusBadge = (auction) => {
@@ -154,6 +157,10 @@ const AuctionsTable = ({ auctions }) => {
 			case 'ENDED':
 				color = 'bg-gray-600';
 				text = 'Ended';
+				break;
+			case 'ADMIN_ENDED':
+				color = 'bg-amber-600';
+				text = 'Admin Ended';
 				break;
 			case 'SETTLED':
 				color = 'bg-indigo-600';
@@ -298,6 +305,7 @@ const AuctionsTable = ({ auctions }) => {
 				auction={selectedAuction}
 				isOpen={isModalOpen}
 				onClose={closeModal}
+				onActionComplete={onAuctionsChanged}
 				onForceEnd={handleForceEnd}
 			/>
 		</>

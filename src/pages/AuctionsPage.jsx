@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Header from "../components/common/Header";
 import StatCard from "../components/common/StatCard";
 
@@ -45,21 +45,22 @@ const AuctionsPage = () => {
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState(null);
 
-	useEffect(() => {
-		const fetchAuctions = async () => {
-			try {
-				setLoading(true);
-				const data = await auctionService.listAuctions({ status: null, page: 1, limit: 100 }); 
-				setAuctions(data.auctions || data); 
-			} catch (err) {
-				setError(err.message || 'Failed to fetch auctions');
-			} finally {
-				setLoading(false);
-			}
-		};
-
-		fetchAuctions();
+	const fetchAuctions = useCallback(async ({ silent = false } = {}) => {
+		try {
+			if (!silent) setLoading(true);
+			setError(null);
+			const data = await auctionService.listAuctions({ status: null, page: 1, limit: 100 }); 
+			setAuctions(data.auctions || data); 
+		} catch (err) {
+			setError(err.message || 'Failed to fetch auctions');
+		} finally {
+			if (!silent) setLoading(false);
+		}
 	}, []);
+
+	useEffect(() => {
+		fetchAuctions();
+	}, [fetchAuctions]);
 
 	const getEndDate = (endTime) => {
 		if (!endTime) return null;
@@ -78,7 +79,7 @@ const AuctionsPage = () => {
 	};
 
 	const isEnded = (auction) => {
-		return auction.status === 'ENDED' || auction.status === 'SETTLED' || getEndDate(auction.end_time)?.getTime() < Date.now();
+		return ['ENDED', 'ADMIN_ENDED', 'SETTLED', 'REJECTED'].includes(auction.status) || getEndDate(auction.end_time)?.getTime() < Date.now();
 	};
 
 	const totalAuctions = auctions.length;
@@ -133,7 +134,7 @@ const AuctionsPage = () => {
 					<StatCard name='Ending Soon' icon={AlertCircle} value={endingSoon} color='#EF4444' />
 				</motion.div>
 
-				<AuctionsTable auctions={auctions} />
+				<AuctionsTable auctions={auctions} onAuctionsChanged={() => fetchAuctions({ silent: true })} />
 			</main>
 		</div>
 	);

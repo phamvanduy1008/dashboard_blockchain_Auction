@@ -42,7 +42,7 @@ export const auctionService = {
 		const { data } = await api.post(`/admin/auctions/${id}/settle`);
 		return data;
 	},
-//Newly added methods for dashboard stats
+	//Newly added methods for dashboard stats
 	getDashboardStats: async () => {
 		const { data } = await api.get('/admin/dashboard/stats');
 		return data;
