@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow, isValid, parseISO } from "date-fns";
 import toast from "react-hot-toast";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { auctionService } from "../../services/auctionService";
 
 const EXCHANGE_RATE_ETH_TO_VND = 50000000;
@@ -308,6 +308,8 @@ const AuctionDetailModal = ({
   onClose,
   onActionComplete,
 }) => {
+  const [detailData, setDetailData] = useState(modalData);
+  const [liveNow, setLiveNow] = useState(() => new Date());
   const [showSuccess, setShowSuccess] = useState(false);
   const [successType, setSuccessType] = useState(null);
   const [successMessage, setSuccessMessage] = useState("");
@@ -317,13 +319,32 @@ const AuctionDetailModal = ({
   const [isRejecting, setIsRejecting] = useState(false);
   const [showConfirmForceEnd, setShowConfirmForceEnd] = useState(false);
   const [isForceEnding, setIsForceEnding] = useState(false);
+  const phaseRef = useRef(null);
 
-  if (!isOpen || !modalData) {
-    return null;
-  }
+  useEffect(() => {
+    setDetailData(modalData);
+  }, [modalData]);
 
-  const auction = modalData.auction || modalData;
-  const bids = modalData.bids || [];
+  const refreshAuctionDetail = async () => {
+    const sourceAuction = detailData?.auction || detailData || modalData?.auction || modalData;
+    const auctionId = sourceAuction?.id || sourceAuction?._id;
+
+    if (!auctionId) {
+      return;
+    }
+
+    try {
+      const refreshed = await auctionService.getAuctionById(auctionId);
+      setDetailData(refreshed);
+      await onActionComplete?.();
+    } catch (error) {
+      console.error("Failed to refresh auction detail:", error);
+    }
+  };
+
+  const currentData = detailData || modalData;
+  const auction = currentData?.auction || currentData || {};
+  const bids = currentData?.bids || [];
 
   const isRejected = auction.status === "REJECTED";
   const isAdminEnded = auction.status === "ADMIN_ENDED";
@@ -348,23 +369,48 @@ const AuctionDetailModal = ({
 
   const endDate = getEndDate(auction.end_time);
   const startDate = getEndDate(auction.start_time);
+  const isBeforeStart =
+    (auction.status === "APPROVED" || auction.status === "DEPLOYING") &&
+    startDate &&
+    liveNow < startDate;
+  const isRunning =
+    auction.status === "ACTIVE" &&
+    startDate &&
+    endDate &&
+    liveNow >= startDate &&
+    liveNow < endDate;
 
-  const timeLeft =
-    auction.status === "PENDING_APPROVAL"
-      ? "Not started yet"
-      : isRejected
-      ? "Rejected by admin"
-      : isAdminEnded
-      ? "Force ended by admin"
-      : isEnded || !endDate || endDate < new Date()
-      ? "Auction expired"
-      : formatDistanceToNow(endDate, { addSuffix: true });
+  let timeLeft = "Auction expired";
+  let timeLabel = "Ends In";
+
+  if (auction.status === "PENDING_APPROVAL") {
+    timeLeft = "Waiting for approval";
+    timeLabel = "Status";
+  } else if (isRejected) {
+    timeLeft = "Rejected by admin";
+    timeLabel = "Status";
+  } else if (isAdminEnded) {
+    timeLeft = "Force ended by admin";
+    timeLabel = "Status";
+  } else if (isBeforeStart) {
+    timeLeft = formatDistanceToNow(startDate, { addSuffix: true });
+    timeLabel = "Starts In";
+  } else if (isRunning) {
+    timeLeft = formatDistanceToNow(endDate, { addSuffix: true });
+    timeLabel = "Ends In";
+  } else if (auction.status === "APPROVED" && startDate && endDate && liveNow >= startDate && liveNow < endDate) {
+    timeLeft = "Starting now...";
+    timeLabel = "Status";
+  } else if (endDate && liveNow < endDate) {
+    timeLeft = formatDistanceToNow(endDate, { addSuffix: true });
+    timeLabel = "Ends In";
+  }
 
   const isEndingSoon =
     auction.status === "ACTIVE" &&
     endDate &&
     !isEnded &&
-    Date.now() > endDate.getTime() - 5 * 60 * 1000;
+    liveNow.getTime() > endDate.getTime() - 5 * 60 * 1000;
 
   const sellerObj = auction.seller_id || auction.seller;
   const sellerName =
@@ -392,12 +438,56 @@ const AuctionDetailModal = ({
 
   const canApprove = auction.status === "PENDING_APPROVAL";
   const canReject = auction.status === "PENDING_APPROVAL";
-  const canDeploy = auction.status === "APPROVED";
-  const canStart = auction.status === "DEPLOYING";
   const canEnd = auction.status === "ACTIVE" && !isEnded;
   const canSettle = (auction.status === "ENDED" || auction.status === "ADMIN_ENDED") && hasBids;
 
-  const showAdminActions = !isEnded && (canApprove || canReject || canDeploy || canStart || canEnd);
+  const showAdminActions = !isEnded && (canApprove || canReject || canEnd);
+
+  useEffect(() => {
+    if (!isOpen) {
+      return undefined;
+    }
+
+    setLiveNow(new Date());
+    const timer = window.setInterval(() => {
+      setLiveNow(new Date());
+    }, 1000);
+
+    return () => window.clearInterval(timer);
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !currentData || !auction?.id) {
+      phaseRef.current = null;
+      return undefined;
+    }
+
+    const currentPhase = isEnded
+      ? "ended"
+      : isRunning
+      ? "active"
+      : isBeforeStart
+      ? "before_start"
+      : auction.status;
+
+    if (phaseRef.current === null) {
+      phaseRef.current = currentPhase;
+      return undefined;
+    }
+
+    if (phaseRef.current === currentPhase) {
+      return undefined;
+    }
+
+    phaseRef.current = currentPhase;
+
+    refreshAuctionDetail();
+    return undefined;
+  }, [auction?.id, auction?.status, currentData, isBeforeStart, isRunning, isEnded, isOpen]);
+
+  if (!isOpen || !currentData) {
+    return null;
+  }
 
   const handleApproveClick = () => setShowConfirmApprove(true);
 
@@ -478,28 +568,6 @@ const AuctionDetailModal = ({
     }
   };
 
-  const handleDeploy = async () => {
-    try {
-      await auctionService.deployAuction(auction.id);
-      toast.success("Auction deployed!");
-      await onActionComplete?.();
-      onClose();
-    } catch (err) {
-      toast.error("Failed to deploy auction");
-    }
-  };
-
-  const handleStart = async () => {
-    try {
-      await auctionService.startAuction(auction.id);
-      toast.success("Auction started!");
-      await onActionComplete?.();
-      onClose();
-    } catch (err) {
-      toast.error("Failed to start auction");
-    }
-  };
-
   const handleSettle = async () => {
     try {
       await auctionService.settleAuction(auction.id);
@@ -547,7 +615,7 @@ const AuctionDetailModal = ({
                 <span className={`px-4 py-2 text-sm rounded-full ${statusInfo.color} text-white font-medium shadow-lg`}>
                   {statusInfo.text}
                 </span>
-                <span className="text-gray-400 text-sm">{timeLeft}</span>
+                        <span className="text-gray-400 text-sm">{timeLabel}: {timeLeft}</span>
               </div>
             </div>
             <button onClick={onClose} className="text-gray-400 hover:text-white transition p-2 rounded-lg hover:bg-gray-700">
@@ -606,7 +674,7 @@ const AuctionDetailModal = ({
                   <div className={`p-4 rounded-2xl border ${isEndingSoon ? "border-red-500/50 bg-red-900/20" : "border-gray-600/50 bg-gray-900/30"}`}>
                     <div className="flex items-center gap-2 mb-2">
                       <Clock className={`w-4 h-4 ${isEndingSoon ? "text-red-400" : "text-gray-400"}`} />
-                      <span className="text-xs uppercase tracking-wide text-gray-400">Ends In</span>
+                        <span className="text-xs uppercase tracking-wide text-gray-400">{timeLabel}</span>
                     </div>
                     <p className={`font-bold text-lg ${isEndingSoon ? "text-red-400 animate-pulse" : "text-white"}`}>{timeLeft}</p>
                   </div>
@@ -689,8 +757,6 @@ const AuctionDetailModal = ({
                       </button>
                     </div>
                   )}
-                  {canDeploy && <button onClick={handleDeploy} className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-4 rounded-xl transition">Deploying Contract ....</button>}
-                  {canStart && <button onClick={handleStart} className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-4 rounded-xl transition">Start Auction</button>}
                   {canEnd && (
                     <button onClick={() => setShowConfirmForceEnd(true)} disabled={isForceEnding} className="bg-red-600 hover:bg-red-700 text-white font-bold py-4 rounded-xl transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50">
                       {isForceEnding ? <Loader2 className="w-4 h-4 animate-spin" /> : <AlertTriangle className="w-4 h-4" />}

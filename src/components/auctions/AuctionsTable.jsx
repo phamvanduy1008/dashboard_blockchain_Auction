@@ -1,6 +1,6 @@
 import { motion } from "framer-motion";
 import { Search, AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import AuctionDetailModal from "../common/AuctionDetailModal";
 import toast from "react-hot-toast";
 import { formatDistanceToNow, isValid, parseISO } from "date-fns";
@@ -45,6 +45,15 @@ const AuctionsTable = ({ auctions, onAuctionsChanged }) => {
 	const [filterStatus, setFilterStatus] = useState("all");
 	const [selectedAuction, setSelectedAuction] = useState(null);
 	const [isModalOpen, setIsModalOpen] = useState(false);
+	const [liveNow, setLiveNow] = useState(() => new Date());
+
+	useEffect(() => {
+		const timer = window.setInterval(() => {
+			setLiveNow(new Date());
+		}, 1000);
+
+		return () => window.clearInterval(timer);
+	}, []);
 
 	console.log("🔍 All auctions (props):", auctions); // This should log now
 
@@ -108,12 +117,16 @@ const AuctionsTable = ({ auctions, onAuctionsChanged }) => {
 		return isValid(date) ? date : null;
 	};
 
-	const getTimeLeft = (endTime, status) => {
+	const getTimeLeft = (startTime, endTime, status) => {
 		if (status === 'PENDING_APPROVAL') return 'Pending';
 		if (status === 'REJECTED') return 'Rejected';
 		if (status === 'ADMIN_ENDED') return 'Force ended';
+		const startDate = getEndDate(startTime);
 		const endDate = getEndDate(endTime);
-		if (!endDate || endDate < new Date()) return "Expired";
+		if ((status === 'APPROVED' || status === 'DEPLOYING') && startDate && liveNow < startDate) {
+			return `Starts ${formatDistanceToNow(startDate, { addSuffix: true })}`;
+		}
+		if (!endDate || endDate < liveNow) return "Expired";
 		return formatDistanceToNow(endDate, { addSuffix: true });
 	};
 
@@ -275,7 +288,7 @@ const AuctionsTable = ({ auctions, onAuctionsChanged }) => {
 												</div>
 											</td>
 											<td className='px-6 py-4 text-sm text-gray-300'>
-												{getTimeLeft(auction.end_time, auction.status)}
+												{getTimeLeft(auction.start_time, auction.end_time, auction.status)}
 											</td>
 											<td className='px-6 py-4 text-sm'>{getStatusBadge(auction)}</td>
 											<td className='px-6 py-4 text-sm'>
